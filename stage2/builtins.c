@@ -4217,7 +4217,7 @@ unsigned short animated_delay;
 unsigned char animated_last_num;
 unsigned short animated_offset_x;
 unsigned short animated_offset_y;
-char animated_name[57];
+char animated_name[128];
 unsigned long fill_color;
 int splashimage_func(char *arg, int flags);
 int background_transparent=0;
@@ -4329,7 +4329,7 @@ splashimage_func(char *arg, int flags)
 	if (! animated_type && ! graphic_type )
 	graphics_end();
 fill:
-	current_term = term_table + 1;	/* terminal graphics */
+//	current_term = term_table + 1;	/* terminal graphics */
 	backup_x = fontx;
 	backup_y = fonty;
 	if (! graphics_init())
@@ -5366,7 +5366,6 @@ command_func (char *arg, int flags)
 				psp = (char *)((int)(program + prog_len + 16) & ~0x0F);
 			}
 		} else {//the old program
-#if 0
 			char *program1;
 			printf_warning ("\nWarning! The program is outdated!\n");
 			psp = (char *)grub_malloc(prog_len + 4096 + 16 + psp_len);
@@ -5379,8 +5378,6 @@ command_func (char *arg, int flags)
 			grub_memmove (program1, program, prog_len);
 			program = program1;
 			tmp = psp;
-#endif
-      return ! (errnum = ERR_EXEC_FORMAT);
 		}
 	}
 
@@ -11752,7 +11749,15 @@ void
 lba_to_chs (unsigned long lba, unsigned long *cl, unsigned long *ch, unsigned long *dh)
 {
       unsigned long cylinder, head, sector;
-
+      
+  if (lba >= 0xfb03ff) //如果超过8GB，则应将1023、254、63用于CHS。issues#374
+  {
+    sector = 63; 
+    head = 254;
+    cylinder = 1023;
+  }
+  else
+  {
       sector = lba % buf_geom.sectors + 1;
       head = (lba / buf_geom.sectors) % buf_geom.heads;
       cylinder = lba / (buf_geom.sectors * buf_geom.heads);
@@ -11762,7 +11767,7 @@ lba_to_chs (unsigned long lba, unsigned long *cl, unsigned long *ch, unsigned lo
       
       if (cylinder >= buf_geom.cylinders)
 	cylinder = buf_geom.cylinders - 1;
-      
+  }      
       *cl = sector | ((cylinder & 0x300) >> 2);
       *ch = cylinder & 0xFF;
       *dh = head;
@@ -11780,12 +11785,21 @@ partnew_func (char *arg, int flags)
   char *filename;
   unsigned long entry1, i;
   unsigned long active = -1;
+  int force = 0;
 
   errnum = 0;
+resume:
   if (grub_memcmp (arg, "--active", 8) == 0)
     {
       active = 0x80;
       arg = skip_to (0, arg);
+      goto resume;
+    }
+  if (grub_memcmp (arg, "--force", 7) == 0)
+    {
+      force = 1;
+      arg = skip_to (0, arg);
+      goto resume;
     }
 
   /* Get the drive and the partition.  */
@@ -11943,7 +11957,7 @@ partnew_func (char *arg, int flags)
   if (! rawread (current_drive, 0, 0, SECTOR_SIZE, (unsigned long long)(unsigned int)mbr, 0xedde0d90))
     return 0;
 
-  if (current_drive_bak)	/* creating a partition from a file */
+  if (current_drive_bak && !force)	/* creating a partition from a file */
   {
 	/* if the entry is not empty, it should be a part of another
 	 * partition, that is, it should be covered by another partition. */
@@ -11963,7 +11977,7 @@ partnew_func (char *arg, int flags)
 	if (i >= 4)
 	{
 		/* not found */
-		printf_debug0 ("Cannot overwrite an independent partition.\n");
+		printf_debug0 ("Cannot overwrite an independent partition. Can use the parameter '--force' to enforce\n");
 		return ! (errnum = ERR_BAD_ARGUMENT);
 	}
     }
@@ -12053,10 +12067,11 @@ static struct builtin builtin_partnew =
   "partnew",
   partnew_func,
   BUILTIN_CMDLINE | BUILTIN_SCRIPT | BUILTIN_MENU | BUILTIN_HELP_LIST | BUILTIN_NO_DECOMPRESSION,
-  "partnew [--active] PART TYPE START [LEN]",
+  "partnew [--active] [--force] PART TYPE START [LEN]",
   "Create a primary partition at the starting address START with the"
   " length LEN, with the type TYPE. START and LEN are in sector units."
-  " If --active is used, the new partition will be active. START can be"
+  " If --active is used, the new partition will be active."
+  " If --force is used, can overwrite an independent partition. START can be"
   " a contiguous file that will be used as the content/data of the new"
   " partition, in which case the LEN parameter is ignored, and TYPE can"
   " be either 0x00 for auto or 0x10 for hidden-auto."
@@ -15221,7 +15236,90 @@ builtin_cmd (char *cmd, char *arg, int flags)
 	else
 		return command_func (cmd, flags);
 }
-
+
+/*
+计算原理：
+1. 二进制数字和
+0xn3n2n1n0 = n3*2^3 + n2*2^2 + n1*2^1 + n0*2^0 = 2(2(2(n3) + n2) + n1) + n0
+左移一位相当于乘以2。n3乘以3次，n2乘以2次，n1乘以1次，n0没有乘。
+2. 逐步重新计算被除数，即被除数逐步向左移位
+0xn3n2n1n0 = 2(n3) + n2 -> 2(2(n3) + n2) + n1 -> 2(2(2(n3) + n2) + n1) + n0
+3. 等号两边同乘一数仍然相等 
+被除数/除数=商 == 2被除数/除数=2商
+*/
+//N除以D，返回商，并将余数存储在*R中
+unsigned long long grub_divmod64 (unsigned long long n, unsigned long long d, unsigned long long *r);
+unsigned long long
+grub_divmod64 (unsigned long long n, unsigned long long d, unsigned long long *r) //64位除法(32位gcc编译不支持64位除法)
+{
+  /* This algorithm is typically implemented by hardware. The idea	该算法通常由硬件实现。
+     is to get the highest bit in N, 64 times, by keeping						其思想是通过保持上限（N*2^i）=（Q*D+M），
+     upper(N * 2^i) = (Q * D + M), where upper											获得N中的最高位64次，其中上限表示128位空间中的高64位。
+     represents the high 64 bits in 128-bits space.  */
+  unsigned char bits = 64;  //循环计数
+  unsigned long long q = 0; //商
+  unsigned long long m = 0; //余数
+  unsigned char q_sign = 0; //商符号   0/1=正/负
+  unsigned char m_sign = 0; //余数符号 0/1=正/负
+
+  /* ARM and IA64 don't have a fast 32-bit division.								ARM和IA64没有快速的32位除法。 
+     Using that code would just make us use software division routines, calling  使用该代码只会让我们使用软件划分例程，
+     ourselves indirectly and hence getting infinite recursion.			间接调用我们自己，从而获得无限递归。 
+  */
+#if 1
+  /* Skip the slow computation if 32-bit arithmetic is possible.  如果可以使用32位算法，则跳过慢速计算*/
+  if (n <= 0xffffffff && d <= 0xffffffff)
+  {
+    if (r)
+      *r = ((unsigned int)n) % (unsigned int)d;
+
+    return ((unsigned int)n) / (unsigned int)d;
+  }
+#endif
+  if ((n & (1ULL << 63)) != (d & (1ULL << 63))) //确定商的符号 正/正=正 负/负=正  正/负=负  负/正=负
+    q_sign = 1;
+  if (n & (1ULL << 63)) //如果被除数为负, 则取补数
+  {
+    n = ~n + 1;
+    m_sign = 1; //确定余数的符号
+  }
+  if (d & (1ULL << 63)) //如果除数为负, 则取补数
+    d = ~d + 1;
+
+  while (!(n & (1ULL << 63))) //把原始被除数首位1移动到最左(第63位)
+  {
+    bits--;
+    n <<= 1;
+  }
+
+  while (bits--)  //重复次数  连上面的总共64次
+  {
+    //重新计算的被除数及商同时乘以2
+    m <<= 1;      //重新计算的被除数乘以2
+    q <<= 1;      //商乘以2
+    //逐步重新计算被除数
+    if (n & (1ULL << 63)) //如果原始被除数首位为1，则参与运算
+      m |= 1;     //重新计算的被除数+1 
+    n <<= 1;      //原始被除数乘以2，为下一次计算做准备
+    //除法计算：使用减法求商。减除数，增加商
+    if (m >= d)   //如果重新计算的被除数>=除数
+    {
+      q |= 1;     //商+1
+      m -= d;     //重新计算的被除数-除数
+    }
+  }
+
+  if (q_sign) //如果商为负, 则商取补
+    q = ~q + 1;
+  if (m_sign) //如果余数为负, 则余数取补
+    m = ~m + 1;
+  
+  if (r)
+    *r = m;
+
+  return q;
+}
+
 static int read_val(char **str_ptr,long long *val)
 {
       char *p;
@@ -15245,6 +15343,7 @@ static int read_val(char **str_ptr,long long *val)
       return 1;
 }
 
+long long retval64;
 static long long
 s_calc (char *arg, int flags)
 {
@@ -15252,6 +15351,8 @@ s_calc (char *arg, int flags)
    long long val2 = 0;
    long long *p_result = &val1;
    char O;
+   unsigned long long r;
+   retval64 = 0;
    
   errnum = 0;
    if (*arg == '*')
@@ -15322,14 +15423,15 @@ s_calc (char *arg, int flags)
 		 val1 *= val2;
 		 break;
 	 case '/':
-		 if ((long)val2 == 0)
+		 if (val2 == 0)
 			return !(errnum = ERR_DIVISION_BY_ZERO);
-		 val1 = (long)val1 / (long)val2;
+		 val1 = (long long)grub_divmod64 (val1, val2, &r);
 		 break;
 	 case '%':
-		 if ((long)val2 == 0)
+		 if (val2 == 0)
 			return !(errnum = ERR_DIVISION_BY_ZERO);
-		 val1 = (long)val1 % (long)val2;
+		 grub_divmod64 (val1, val2, &r);
+		 val1 = (long long)r;
 		 break;
 	 case '&':
 		 val1 &= val2;
@@ -15354,6 +15456,7 @@ s_calc (char *arg, int flags)
    printf_debug0(" %ld (HEX:0x%lX)\n",val1,val1);
 	if (p_result != &val1)
 	   *p_result = val1;
+   retval64 = val1;
    return val1;
 }
 
@@ -15540,11 +15643,13 @@ xyz_done:
 	if (current_term != term_table)		/* terminal console */
 		current_term = term_table;	/* terminal console */
       }
-      return old_graphics_mode;
+			graphics_mode = tmp_graphicsmode;
+//      return old_graphics_mode;
+			return graphics_mode;
     }
 enter_graphics_mode:
-    if (graphics_mode != (unsigned long)tmp_graphicsmode 
-	|| current_term != term_table + 1	/* terminal graphics */
+    if (graphics_mode != tmp_graphicsmode 
+	/*|| current_term != term_table + 1*/	/* terminal graphics */
 	)
     {
       graphics_mode = tmp_graphicsmode;
@@ -15585,7 +15690,8 @@ bad_arg:
     return 0;
   }
 
-  return old_graphics_mode;
+//  return old_graphics_mode;
+  return graphics_mode;
 #else
   return 0x12;
 #endif
@@ -15630,7 +15736,6 @@ static struct builtin builtin_initscript =
   BUILTIN_MENU,
 };
 
-
 static int
 echo_func (char *arg,int flags)
 {
@@ -15654,9 +15759,24 @@ echo_func (char *arg,int flags)
       {
 	 arg += 3;
 	 char c = 0;
+	 char s[5] = {0};
+	 char* p = s;
+	 unsigned long long length;
+	 int i=2, j=0;
 	 if (*arg == '-') c=*arg++;
-	 y = ((*arg++ - '0') & 15)*10;
-	 y += ((*arg++ - '0') & 15);
+	if (*arg == '0' && (arg[1]|32) == 'x')
+	{
+		if (arg[3] == '-' || (arg[4]|32) == 'x')
+			i = 3;
+		else
+			i = 4;
+	}
+	 while(i--)
+		s[j++] = *arg++;
+	 safe_parse_maxint (&p, &length);
+	 y = length;
+//	 y = ((*arg++ - '0') & 15)*10;
+//	 y += ((*arg++ - '0') & 15);
 	 if ( c != '\0' )
 	 {
 	    y = current_term->max_lines - y;
@@ -15664,9 +15784,10 @@ echo_func (char *arg,int flags)
 	 }
 
 	 if (*arg == '-') c = *arg++;
-	 
-	 x = ((*arg++ - '0') & 15)*10;
-	 x += ((*arg++ - '0') & 15);
+	 safe_parse_maxint (&arg, &length);
+	 x = length;
+//	 x = ((*arg++ - '0') & 15)*10;
+//	 x += ((*arg++ - '0') & 15);
 	 if (c != 0) x = current_term->chars_per_line - x;
 	 //saved_xy = getxy();
 	 saved_x = fontx;
@@ -15827,6 +15948,7 @@ echo_func (char *arg,int flags)
 		else
 		{
 			current_color_64bit = ull;
+			current_color = color_64_to_8 (current_color_64bit);
 		}
 		arg = p + 1;
             }
@@ -15852,9 +15974,10 @@ echo_func (char *arg,int flags)
          }
       }
       
-      grub_putchar((unsigned char)*arg, 255);
+//      grub_putchar((unsigned char)*arg, 255);		//移动到判断之后，避免打印‘\0’   2022-11-05
       if (!(*arg))
 				break;
+      grub_putchar((unsigned char)*arg, 255);
    }
    if (current_term->setcolorstate)
 	  current_term->setcolorstate (COLOR_STATE_STANDARD);
@@ -15874,6 +15997,7 @@ static struct builtin builtin_echo =
    BUILTIN_MENU | BUILTIN_CMDLINE | BUILTIN_SCRIPT | BUILTIN_HELP_LIST,
    "echo [-P:XXYY] [-h] [-e] [-n] [-v] [-rrggbb] [--mem=offset=length] [[$[ABCD]]MESSAGE ...] ",
    "-P:XXYY position control line(XX) and column(YY).\n"
+   "   XX(YY) are both 2 digit decimal or both 3/4 character hex. Can precede with - sign for position from end.\n"
    "-h      show a color panel.\n"
    "-n      do not output the trailing newline.\n"
    "-e      enable interpretation of backslash escapes.\n"
@@ -16150,6 +16274,8 @@ int envi_cmd(const char *var,char * const env,int flags)
 	    }
 	    else if (substring(ch,"@retval",1) == 0)
 		sprintf(p,"%d",*(int*)0x4CB00);
+	    else if (substring(ch,"@retval64",1) == 0)
+		sprintf(p,"%ld",retval64);
 	    #ifdef PATHEXT
 	    else if (substring(ch,"@pathext",1) == 0)
 		sprintf(p,"%s",PATHEXT);
@@ -17412,7 +17538,16 @@ static int bat_run_script(char *filename,char *arg,int flags)
 				for (i = 1;i< 10;++i)
 				{
 					if (s[i][0])
+#if 1
 						p_cmd += sprintf(p_cmd,"%s ",s[i]);
+#else
+					{		//消除末尾的空格  2022-11-05    会使得外部命令SISO、RUN列表文件时，扩展名只显示前2个！  2022-12-15
+						if (i == 1)
+							p_cmd += sprintf(p_cmd,"%s",s[i]);
+						else
+							p_cmd += sprintf(p_cmd," %s",s[i]);
+					}
+#endif
 					else
 						break;
 				}

@@ -827,10 +827,11 @@ extern unsigned short animated_delay;
 extern unsigned char animated_last_num;
 extern unsigned short animated_offset_x;
 extern unsigned short animated_offset_y;
-extern char animated_name[57];
+extern char animated_name[128];
 extern int animated (void);
 extern int splashimage_func(char *arg, int flags);
 extern int background_transparent;
+extern int use_phys_base;
 #endif
 
 struct mem_alloc_array
@@ -911,7 +912,7 @@ typedef char VAR_VALUE[MAX_ENV_LEN];
 #define get_env_all()				envi_cmd(NULL, NULL, 2)
 #define reset_env_all()				envi_cmd(NULL, NULL, 3)
 extern int envi_cmd(const char *var,char * const env,int flags);
-
+extern long long retval64;
 
 /* GUI interface variables. */
 # define MAX_FALLBACK_ENTRIES	8
