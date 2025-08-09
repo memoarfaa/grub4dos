@@ -318,15 +318,15 @@ disk_read_blocklist_func (unsigned long long sector, unsigned long offset, unsig
 	        {
 		  if (blklst_last_length == 0)
 		    grub_printf ("%s0x%lx+0x%lx", (blklst_num_entries ? "," : ""),
-			     (unsigned long long)(blklst_start_sector - part_start), blklst_num_sectors);
+			     (unsigned long long)(blklst_start_sector/* - part_start*/), blklst_num_sectors);
 		  else if (blklst_num_sectors > 1)
 		    grub_printf ("%s0x%lx+0x%lx,0x%lx[0-0x%x]", (blklst_num_entries ? "," : ""),
-			     (unsigned long long)(blklst_start_sector - part_start), (blklst_num_sectors-1),
-			     (unsigned long long)(blklst_start_sector + blklst_num_sectors-1 - part_start),
+			     (unsigned long long)(blklst_start_sector/* - part_start*/), (blklst_num_sectors-1),
+			     (unsigned long long)(blklst_start_sector + blklst_num_sectors-1/* - part_start*/),
 			     blklst_last_length);
 		  else
 		    grub_printf ("%s0x%lx[0-0x%x]", (blklst_num_entries ? "," : ""),
-			     (unsigned long long)(blklst_start_sector - part_start), blklst_last_length);
+			     (unsigned long long)(blklst_start_sector/* - part_start*/), blklst_last_length);
 	        }
 	        else if (blklst_last_length == 0 && blklst_num_entries < DRIVE_MAP_FRAGMENT)
 		{
@@ -342,7 +342,7 @@ disk_read_blocklist_func (unsigned long long sector, unsigned long offset, unsig
 	{
 	  if (query_block_entries >= 0)
 			grub_printf("%s0x%lx[0x%x-0x%x]", (blklst_num_entries ? "," : ""),
-				(unsigned long long)(sector - part_start), offset, (offset + length));
+				(unsigned long long)(sector/* - part_start*/), offset, (offset + length));
 	  blklst_num_entries++;
 	}
       else
@@ -435,7 +435,7 @@ blocklist_func (char *arg, int flags)
     {
       if (query_block_entries >= 0)
         grub_printf ("%s0x%lx+0x%lx", (blklst_num_entries ? "," : ""),
-		 (unsigned long long)(blklst_start_sector - part_start), blklst_num_sectors);
+		 (unsigned long long)(blklst_start_sector/* - part_start*/), blklst_num_sectors);
       else if (blklst_num_entries < DRIVE_MAP_FRAGMENT)
 	{
 		map_start_sector[blklst_num_entries] = blklst_start_sector;
@@ -4356,7 +4356,7 @@ fill:
 	//graphics_cls();
 	fontx = backup_x;
 	fonty = backup_y;
-	menu_tab_ext |= 2;
+	menu_tab_ext |= 2;  //已加载背景图像
     return 1;
 }
 
@@ -6010,7 +6010,7 @@ find_func (char *arg, int flags)
 					current_drive = min_cdrom_id;
 				else
 					continue;
-#endif
+#else
         for (drive = 0xa0; drive <= 0xff; drive++)
         {
           for (i = 0; i < DRIVE_MAP_SIZE; i++)
@@ -6022,7 +6022,7 @@ find_func (char *arg, int flags)
               current_drive = drive; 
               if (tmp_drive != current_drive && find_check(filename,builtin1,arg,flags) == 1)
 							{
-								tmp_drive = current_drive;
+//								tmp_drive = current_drive;
 								got_file = 1;
 								if (set_root)
 									goto found;
@@ -6031,6 +6031,7 @@ find_func (char *arg, int flags)
             }
           }
         }
+#endif
 				break;
 			case 'h':
 			case 'f':
@@ -6100,6 +6101,7 @@ find_func (char *arg, int flags)
 			default:
 				continue;
 		}
+#if 0
 		if (tmp_drive == current_drive)
 			continue;
 		if (find_check(filename,builtin1,arg,flags) == 1)
@@ -6108,6 +6110,7 @@ find_func (char *arg, int flags)
 			if (set_root)
 				goto found;
 		}
+#endif
 	}
 	saved_drive = tmp_drive;
 	saved_partition = tmp_partition;
@@ -6468,11 +6471,10 @@ close_file:
 	i=0;
 	while ((len = grub_read((unsigned long long)(unsigned int)(char*)&buf, 1, 0xedde0d90)))
 	{
+    if (buf[0] == '#')  //避免注释中含有'DotSize='字符串，清除已安装字库  2023-09-30
+      while (grub_read((unsigned long long)(unsigned int)(char*)&buf, 1, 0xedde0d90) && buf[0] != '\n');	//跳过注释
 		if (buf[0] == '\n' || buf[0] == '\r')
-		{
-//printf ("goto valid_lines=%d, buf=%s\n", valid_lines, buf);
 			goto redo;	/* try the new line */
-		}
 		if (buf[0] == '\0')	/* NULL encountered ? */
 			break;		/* yes, end */
 
@@ -6565,7 +6567,7 @@ loop:
 #endif
 
 	*(unsigned long *)(0x1800820) = 1;  //2023-03-05
-	menu_tab_ext |= 4;
+	menu_tab_ext |= 4;  //已加载字库
 //	if (font_h != 16)			//迁就有的16*16字库不带0-0x7f字符(如SISO)		2023-03-01
   if (font_h == 16 && *(unsigned long *)(UNIFONT_START+0x820+0x14) == 0)  //16*16字库不带0-0x7f字符(优先使用自带字库)  2023-06-22
     goto build_default_VGA_font;
@@ -6846,8 +6848,8 @@ uuid_func (char *argument, int flags)
       unsigned long part = 0xFFFFFF;
       unsigned long long start, len, offset;
       unsigned long type, entry1, ext_offset1;
-		int bsd_part;
-		int pc_slice;
+		int bsd_part = 0xff;
+		int pc_slice = 0xff;
 
 //		if ((drive > 10 && drive < 0x80) || (drive > (*((char *)0x475) + 0x80) && drive < 0x9f))
 //			continue;
@@ -6918,14 +6920,21 @@ qqqqqq:
 			}
                       if (! *arg)
                         {
-						grub_printf ("(%s%d%c%c%c%c):", ((drive<0x80)?"fd":(drive>=0x9f)?"":"hd"),((drive<0x80 || drive>=0x9f)?drive:(drive-0x80)), ((pc_slice==0xff)?'\0':','),((pc_slice==0xff)?'\0' :(pc_slice + '0')), ((bsd_part == 0xFF) ? '\0' : ','), ((bsd_part == 0xFF) ? '\0' : (bsd_part + 'a')));
+						if (drive < 0x9f)
+						  grub_printf ("(%s%d%c%d%c%c):", ((drive<0x80)?"fd":"hd"),((drive<0x80)?drive:(drive-0x80)), ((pc_slice==0xff)?'\0':','),((pc_slice==0xff)? '\0' :pc_slice), ((bsd_part == 0xFF) ? '\0' : ','), ((bsd_part == 0xFF) ? '\0' : (bsd_part + 'a')));//2024-01-12 支持10个以上的分区
+						else
+						  grub_printf ("(0x%x):", drive);
+
 						if (*uuid_found || debug)
 							grub_printf("%s%s is \"%s\".\n\t", ((drive<0x80)?"   ":(drive>=0x9f)?"   ":" "), p, ((*uuid_found) ? uuid_found : "(unsupported)"));
 						print_fsys_type();
 		          }
                       else if (substring((char*)uuid_found,arg,1) == 0)
                         {
-                         grub_sprintf(root_found,"(%s%d%c%c%c%c)", ((drive<0x80)?"fd":(drive>=0x9f)?"":"hd"),((drive<0x80 || drive>=0x9f)?drive:(drive-0x80)), ((pc_slice==0xff)?'\0':','),((pc_slice==0xff)?'\0' :(pc_slice + '0')), ((bsd_part == 0xFF) ? '\0' : ','), ((bsd_part == 0xFF) ? '\0' : (bsd_part + 'a')));
+                         if (drive < 0x9f)
+                           grub_sprintf(root_found,"(%s%d%c%d%c%c)", ((drive<0x80)?"fd":"hd"),((drive<0x80)?drive:(drive-0x80)), ((pc_slice==0xff)?'\0':','),((pc_slice==0xff)? '\0' :pc_slice), ((bsd_part == 0xFF) ? '\0' : ','), ((bsd_part == 0xFF) ? '\0' : (bsd_part + 'a')));//2024-01-12 支持10个以上的分区
+                         else
+                           grub_sprintf(root_found, "(0x%x):", drive);
                          goto found;
                         }
 		}
@@ -9320,7 +9329,8 @@ fragment_map_slot_empty(struct fragment_map_slot *q)
     if (!q->slot_len)
       return q;
     n -= q->slot_len;
-    q += q->slot_len;
+//    q += q->slot_len;
+    q = (struct fragment_map_slot *)((char *)q + q->slot_len);  //2023-11-14
   }
   return 0;
 }
@@ -9336,7 +9346,8 @@ fragment_map_slot_find(struct fragment_map_slot *q, unsigned long from)
     if (q->from == (char)from)
       return q;
     n -= q->slot_len;
-    q += q->slot_len;
+//    q += q->slot_len;
+    q = (struct fragment_map_slot *)((char *)q + q->slot_len);  //2023-11-14
   }
   return 0;
 }
@@ -13073,12 +13084,14 @@ print_root_device (char *buffer,int flag)
 			break;
 	#endif /* PXE drive. */
 		default:
+#if 0
 			if (tmp_drive == cdrom_drive)
 			{
 				grub_printf("(cd)");
-				break;
 			}
-			else if (tmp_drive == 0xFFFF)
+			else 
+#endif
+			if (tmp_drive == 0xFFFF)
 			{
 				grub_printf("(md");
 				if (md_part_base) grub_printf(",0x%lx,0x%lx",md_part_base,md_part_size);
@@ -15622,10 +15635,16 @@ xyz_done:
 	current_bytes_per_pixel = (z+7)/8;
 	if (IMAGE_BUFFER)		//字库位置使用内存分配   2023-02-22
 		grub_free (IMAGE_BUFFER);
-	IMAGE_BUFFER = grub_malloc (current_x_resolution * current_y_resolution * current_bytes_per_pixel);//应当在加载图像前设置
+//	IMAGE_BUFFER = grub_zalloc (current_x_resolution * current_y_resolution * current_bytes_per_pixel);//应当在加载图像前设置  使用grub_malloc，切换分辨率可能花屏。2023-08-24
+  IMAGE_BUFFER = grub_malloc (current_bytes_per_scanline * current_y_resolution); //如果设置了返回主菜单不重新加载背景图，背景图会被清除。2023-09-25
+  if (graphics_mode != (unsigned int)tmp_graphicsmode)  //如果当前图形模式与设置的不同
+  {
+    menu_tab_ext &= 0xfd;   //清除背景图已加载标记
+    grub_memset (IMAGE_BUFFER, 0, current_bytes_per_scanline * current_y_resolution); //清除背景图，避免切换分辨率可能花屏  2023-09-25
+  }
 	if (!JPG_FILE)
 	{
-    JPG_FILE = grub_malloc (0x8000);
+    JPG_FILE = grub_zalloc (0x8000);  //使用grub_malloc，切换分辨率可能花屏。2023-08-24
 	}
 	
 #undef _X_
@@ -15694,9 +15713,9 @@ bad_arg:
 
 //  return old_graphics_mode;
 	if (graphics_mode > 0xFF)
-		menu_tab_ext |= 1;
-	else
-		menu_tab_ext &= 0xfe;
+		menu_tab_ext |= 1;    //已在图形模式
+//	else
+//		menu_tab_ext &= 0xfe; //不在图形模式
   return graphics_mode;
 #else
   return 0x12;
@@ -16782,7 +16801,7 @@ setmenu_func(char *arg, int flags)
 		else if (grub_memcmp (arg, "--u", 3) == 0)
 		{
 			menu_tab = 0;
-			menu_tab_ext = 0;
+			menu_tab_ext = 0;       //初始化
 			num_string = 0;
 			DateTime_enable = 0;			
 			menu_font_spacing = 0;

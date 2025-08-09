@@ -23,6 +23,7 @@
 #include "filesys.h"
 #include "pxe.h"
 #include "ipxe.h"
+#include <term.h>
 
 #if !defined(__constant_htonl)
 #define __constant_htonl(x) \
@@ -574,6 +575,7 @@ static int pxe_open (char* name)
 		if ((unsigned long)debug >= 0x7FFFFFFF) printf("Err: %d\n",pxe_tftp_open.Status);
 		return 0;
 	}
+	filepos = 0;
 	if (pxe_file_func[cur_pxe_type]->getsize())
 		return 1;
 	pxe_close ();
@@ -813,10 +815,22 @@ int pxe_dir (char *dirname)
 			ret = 0;
 			for (i = 0; i < 512 && (p = P_DIR_INFO->dir[i]);++i)
 			{
-				if (*dirname == 0 || substring (dirname, p, 1) < 1)
+//				if (*dirname == 0 || substring (dirname, p, 1) < 1)
+				if (*dirname == 0 || substring (dirname, p, 1) == 0)  //*dirname为0,是'/''\0',打印全部; 其他只打印比较后一致的。
 				{
 					ret = 1;
-					print_a_completion(p, 1);
+          unsigned long long clo64 = current_color_64bit; //在dir.txt中，文件夹大写，文件小写。这样打印时文件夹高亮。
+          unsigned int clo = current_color;
+          if (*p < 0x61)
+          {
+						if (current_term->setcolorstate)
+							current_term->setcolorstate (COLOR_STATE_HIGHLIGHT);
+						current_color_64bit = (current_color_64bit & 0xffffff) | (clo64 & 0xffffff00000000);
+						current_color = (current_color & 0x0f) | (clo & 0xf0);
+          }
+          print_a_completion(p, 1); //EXT,lt.jmp,menu.lst,unifont.hex
+          current_color_64bit = clo64;
+          current_color = clo;
 				}
 			}
 		}

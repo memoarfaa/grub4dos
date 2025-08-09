@@ -1,4 +1,31 @@
 ﻿更新说明：
+2025-07-03 (yaya)
+  修正ls函数。
+
+2024-02-26 (yaya)
+  改进uuid/vol函数，支持10个以上分区。
+
+2023-11-27 (yaya)
+  修正碎片插槽计算。
+  修正cdrom解析。issues #431
+
+2023-10-14 (yaya)
+  修正增加变量menu_tab_ext引入的问题。
+  修正font函数。
+
+2023-09-22 (yaya)
+  修正切换分辨率花屏问题。
+  修正grldr.mbr。 issues #427
+  增加变量menu_tab_ext，避免重入主菜单时重复设置图形模式、加载背景图及字库。
+  例如：calc *0x8312&1 > nul || graphicsmode -1 800
+        calc *0x8312&2 > nul || splashimage /boot/grub/lt.jpg
+        calc *0x8312&4 > nul || font /boot/grub/unifont.hex.gz
+
+2023-08-18 (yaya)
+  修正2023-06-15补丁引入的bug，bootmgr不能加载grldr。
+  改进grldr.mbr及grldr.pbr对FAT12/FAT16分区的判断。
+  修正grldr.mbr溢出，避免grldr靠后时无法加载的问题。 issues #424
+
 2023-07-01 (yaya)
   修正 timeout 函数。issues #418
 
